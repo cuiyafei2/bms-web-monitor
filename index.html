@@ -297,27 +297,23 @@ async function scanAll() {
 }
 
 async function addDevice() {
-  $('scanPanel').style.display = 'block';
-  $('scanList').textContent = '正在扫描附近设备…';
-  const found = await scanDevices();
-    if (!found || found.size === 0) {
-      // 静默扫描没结果或不可用，退回系统弹窗授权
-      $('scanList').textContent = '请在弹出的系统窗口中选择要配对的设备';
-    try {
-      const d = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }],
-        optionalServices: [SERVICE_UUID]
-      });
-      await attachDevice(d);
-      $('scanPanel').style.display = 'none';
-      renderDevices();
-        setStatus('已添加并连接 ' + (d.name || '设备'), true);
-    } catch(e) {
-        if (e.name !== 'NotFoundError') setStatus('添加失败：' + e.message, false);
+  try {
+    // 必须在用户点击的直接调用栈里立即弹窗，否则浏览器会拦截
+    const d = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }],
+      optionalServices: [SERVICE_UUID]
+    });
+    await attachDevice(d);
+    const name = d.name || '';
+    if (name && manuallyDisconnected[name]) {
+      delete manuallyDisconnected[name];
+      saveManualOff();
     }
-    return;
+    setStatus('已添加并连接 ' + (name || '设备'), true);
+    renderDevices();
+  } catch(e) {
+    if (e.name !== 'NotFoundError') setStatus('添加失败：' + e.message, false);
   }
-  renderScanList(found);
 }
 
 async function scanDevices() {
