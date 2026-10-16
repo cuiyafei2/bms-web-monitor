@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>储能 BMS 蓝牙监控</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --blue:#1565c0; --green:#2e7d32; --orange:#ef6c00; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: #222; padding: 16px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; text-align: center; margin: 8px 0 16px; }
+  .status { text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 14px; background: #fff; font-size: 14px; }
+  .status.ok { background: #e8f5e9; color: var(--green); }
+  .status.err { background: #ffebee; color: #c62828; }
+  button { padding: 12px; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; background: var(--blue); color: #fff; }
+  button:disabled { background: #b0bec5; cursor: not-allowed; }
+
+  .home-actions { display: flex; gap: 10px; margin-bottom: 16px; }
+  .home-actions button { flex: 1; }
+  #deviceGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .battery-card { background: var(--card); border-radius: 14px; padding: 16px 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: transform .1s; }
+  .battery-card:hover { transform: translateY(-2px); }
+  .battery-icon { position: relative; width: 46px; height: 84px; border: 3px solid #c6c6c6; border-radius: 8px; }
+  .battery-icon::before { content: ''; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 20px; height: 7px; background: #c6c6c6; border-radius: 2px 2px 0 0; }
+  .battery-fill { position: absolute; bottom: 2px; left: 2px; right: 2px; height: 70%; background: #d7d7d7; border-radius: 0 0 5px 5px; }
+  .battery-card.connected .battery-icon { border-color: #43a047; }
+  .battery-card.connected .battery-icon::before { background: #43a047; }
+  .battery-card.connected .battery-fill { background: #66bb6a; }
+  .battery-card .name { font-size: 15px; font-weight: 700; }
+  .battery-card .mac { font-size: 11px; color: #999; word-break: break-all; text-align: center; }
+  .battery-card .state { font-size: 11px; color: #999; }
+  .battery-card.connected .state { color: #43a047; }
+  .switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch input:disabled + .slider { opacity: .5; cursor: not-allowed; }
+  .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 28px; }
+  .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background-color: #fff; transition: .3s; border-radius: 50%; }
+  .switch input:checked + .slider { background-color: #43a047; }
+  .switch input:checked + .slider:before { transform: translateX(24px); }
+  .empty-tip { grid-column: 1 / -1; text-align: center; color: #999; padding: 40px 0; font-size: 14px; }
+  .bt-status { text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; background: #fff; color: #888; }
+  .bt-status.ok { background: #e8f5e9; color: #2e7d32; }
+  .bt-status.err { background: #ffebee; color: #c62828; }
+  #scanPanel { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.05); margin-bottom: 12px; }
+  #scanPanel h3 { font-size: 14px; margin-bottom: 10px; }
+  #scanList { font-size: 14px; color: #666; }
+  .scan-item { padding: 10px 12px; border-radius: 8px; background: #f5f6f8; margin-bottom: 8px; cursor: pointer; font-size: 14px; }
+  .scan-item:hover { background: #e3f2fd; }
+
+  .data-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .data-head .back { background: #78909c; flex: 0 0 auto; padding: 8px 14px; font-size: 14px; }
+  .data-head .title { flex: 1; text-align: center; font-size: 16px; font-weight: 700; }
+  .soc-row { display: flex; gap: 12px; margin-bottom: 12px; }
+  .big-card { flex: 1; background: var(--card); border-radius: 14px; padding: 18px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+  .big-card .val { font-size: 40px; font-weight: 700; }
+  .big-card .lbl { font-size: 13px; color: #888; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+  .tile { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+  .tile .lbl { font-size: 12px; color: #888; }
+  .tile .val { font-size: 22px; font-weight: 700; margin-top: 6px; }
+  .tile .unit { font-size: 12px; color: #999; font-weight: 400; }
+  .period { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.05); margin-bottom: 12px; }
+  .period .lbl { font-size: 13px; color: #666; margin-bottom: 10px; }
+  .period-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .period-btns button { flex: 0 0 auto; padding: 8px 14px; font-size: 14px; border-radius: 8px; background: #455a64; }
+  .period-btns button.active { background: var(--orange); }
+  .cells { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.05); margin-bottom: 12px; }
+  .cells h3 { font-size: 14px; margin-bottom: 10px; }
+  .cell-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+  .cell-bar .idx { width: 28px; color: #888; }
+  .cell-bar .track { flex: 1; height: 14px; background: #eee; border-radius: 7px; overflow: hidden; }
+  .cell-bar .fill { height: 100%; background: #43a047; border-radius: 7px; }
+  .cell-bar .v { width: 58px; text-align: right; color: #555; }
+  .hint { font-size: 12px; color: #999; text-align: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+  <div id="homeView">
+    <h1>储能 BMS 设备</h1>
+    <div id="btStatus" class="bt-status">正在检测蓝牙支持…</div>
+    <div class="home-actions">
+      <button id="refreshBtn">刷新</button>
+      <button id="addBtn">添加设备</button>
+    </div>
+    <div id="deviceGrid"></div>
+    <div id="scanPanel" style="display:none;">
+      <h3>可配对的设备</h3>
+      <div id="scanList"></div>
+    </div>
+    <div class="hint">打开页面会自动连接已保存的设备；绿色 = 已连接，点击查看详情。</div>
+  </div>
+
+  <div id="dataView" style="display:none;">
+    <div class="data-head">
+      <button class="back" id="backBtn">← 返回</button>
+      <div class="title" id="devTitle">设备</div>
+    </div>
+    <div id="status" class="status">未连接</div>
+
+    <div class="soc-row">
+      <div class="big-card"><div class="val" id="soc" style="color:#2e7d32;">--</div><div class="lbl">SOC 剩余电量</div></div>
+      <div class="big-card"><div class="val" id="soh" style="color:#1565c0;">--</div><div class="lbl">SOH 健康度</div></div>
+    </div>
+
+    <div class="grid">
+      <div class="tile"><div class="lbl">总电压</div><div class="val" id="voltage">-- <span class="unit">V</span></div></div>
+      <div class="tile"><div class="lbl">电流</div><div class="val" id="current">-- <span class="unit">A</span></div></div>
+      <div class="tile"><div class="lbl">功率</div><div class="val" id="power">-- <span class="unit">W</span></div></div>
+      <div class="tile"><div class="lbl">最高温度</div><div class="val" id="temp">-- <span class="unit">℃</span></div></div>
+    </div>
+
+    <div class="period">
+      <div class="lbl">LED 闪烁周期</div>
+      <div class="period-btns" id="periodBtns">
+        <button data-ms="50">50ms</button>
+        <button data-ms="100" class="active">100ms</button>
+        <button data-ms="500">500ms</button>
+        <button data-ms="1000">1s</button>
+        <button data-ms="2000">2s</button>
+      </div>
+    </div>
+
+    <div class="cells">
+      <h3>单体电压</h3>
+      <div id="cellList">等待数据…</div>
+    </div>
+  </div>
+
+<script>
+const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+const DATA_UUID    = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+const CMD_UUID     = 'beb5483f-36e1-4688-b7f5-ea07361b26a8';
+const MAC_MAP = {
+  'ESP32-BMS1': 'a0:a3:b3:ff:b5:84',
+  'ESP32-BMS2': 'd8:13:2a:7f:46:94'
+};
+
+let savedDevices = [];
+let connections = {};
+let deviceObjects = {};
+let currentId = '';
+let lastDisconnect = {};
+let manuallyDisconnected = {};
+
+const $ = id => document.getElementById(id);
+const setStatus = (msg, ok) => {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+  const bt = $('btStatus');
+  if (bt) {
+    bt.textContent = msg;
+    bt.className = 'bt-status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+  }
+};
+
+function loadDevices() {
+  try { savedDevices = JSON.parse(localStorage.getItem('bms_devices') || '[]'); }
+  catch(e) { savedDevices = []; }
+  // 按名称去重，清理历史累积的重复记录
+  const seen = new Set();
+  savedDevices = savedDevices.filter(d => {
+    const key = d.name || d.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  try { manuallyDisconnected = JSON.parse(localStorage.getItem('bms_manual_off') || '{}'); }
+  catch(e) { manuallyDisconnected = {}; }
+}
+function saveDevices() {
+  localStorage.setItem('bms_devices', JSON.stringify(savedDevices));
+}
+function saveManualOff() {
+  localStorage.setItem('bms_manual_off', JSON.stringify(manuallyDisconnected));
+}
+
+function renderDevices() {
+  const grid = $('deviceGrid');
+  if (!savedDevices.length) {
+    grid.innerHTML = '<div class="empty-tip">还没有设备<br>点击上方「刷新 / 添加设备」</div>';
+    return;
+  }
+  grid.innerHTML = savedDevices.map(d => {
+    const connected = !!connections[d.id];
+    const conn = connections[d.id];
+    const mac = conn && conn.mac ? conn.mac : d.mac;
+      const cooling = (Date.now() - (lastDisconnect[d.id] || 0)) < 2500;
+    return `<div class="battery-card ${connected ? 'connected' : ''}" data-id="${d.id}">
+        <div class="battery-icon" data-detail="${d.id}"><div class="battery-fill"></div></div>
+      <div class="name">${d.name || 'ESP32-BMS'}</div>
+      <div class="mac">${mac || '—'}</div>
+        <div class="state">${connected ? '已连接' : cooling ? '复位中' : '未连接'}</div>
+        <label class="switch">
+            <input type="checkbox" data-id="${d.id}" ${connected ? 'checked' : ''} ${cooling ? 'disabled' : ''}>
+          <span class="slider"></span>
+        </label>
+    </div>`;
+  }).join('');
+    document.querySelectorAll('.battery-icon').forEach(icon => {
+      icon.addEventListener('click', () => onCardClick(icon.dataset.detail));
+  });
+    document.querySelectorAll('.switch input').forEach(inp => {
+      inp.addEventListener('change', (e) => {
+        const id = inp.dataset.id;
+        if (inp.checked) {
+          connectById(id);
+        } else {
+          disconnectById(id);
+        }
+      });
+    });
+}
+
+  function disconnectById(id) {
+    const conn = connections[id];
+    if (!conn) return;
+    const name = conn.name || (savedDevices.find(x => x.id === id) || {}).name || '';
+    try { if (conn.characteristic) conn.characteristic.stopNotifications(); } catch(e) {}
+    if (conn.device && conn.device.gatt && conn.device.gatt.connected) {
+      conn.device.gatt.disconnect();
+    }
+    delete connections[id];
+  lastDisconnect[id] = Date.now();
+    if (name) { manuallyDisconnected[name] = true; saveManualOff(); }
+    renderDevices();
+  setTimeout(() => renderDevices(), 2600);
+  }
+
+function onCardClick(id) {
+  const conn = connections[id];
+  if (conn) {
+    showDataView(id);
+  } else {
+    connectById(id);
+  }
+}
+
+async function refreshOnly() {
+  setStatus('正在扫描附近设备…');
+  let foundNames = null;
+  if (navigator.bluetooth && navigator.bluetooth.requestLEScan) {
+    foundNames = await scanAll();
+  }
+  if (foundNames) {
+    for (const d of savedDevices) {
+      if (d.name && !foundNames.has(d.name) && connections[d.id]) {
+        disconnectById(d.id);
+      }
+    }
+  }
+  await autoConnect();
+  renderDevices();
+  setStatus('刷新完成', true);
+}
+
+async function scanAll() {
+  const found = new Map();
+  let scan = null;
+  const onAdv = (event) => {
+    const name = event.name || (event.device && event.device.name) || '';
+    if (!name.startsWith('ESP32-BMS')) return;
+      if (manuallyDisconnected[name]) return;
+    const dev = event.device;
+    const id = dev.id || dev.address || name;
+    if (found.has(id)) return;
+    found.set(id, { dev, name });
+    if (!savedDevices.some(x => x.name === name)) {
+      savedDevices.push({ id, name, mac: MAC_MAP[name] || '' });
+      renderDevices();
+    }
+    // 发现后立即尝试自动连接（扫描期间设备可见，已授权设备可静默连接）
+    if (!connections[id]) {
+      attachDevice(dev).catch(() => {}).finally(() => renderDevices());
+    }
+  };
+  try {
+    navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+    scan = await navigator.bluetooth.requestLEScan({
+      filters: [{ namePrefix: 'ESP32-BMS' }],
+      keepRepeatedDevices: false
+    });
+    await new Promise(r => setTimeout(r, 5000));
+  } catch(e) {
+    if (savedDevices.length === 0) {
+      setStatus('静默扫描不可用，请手动添加设备', false);
+    }
+      return null;
+  } finally {
+    navigator.bluetooth.removeEventListener('advertisementreceived', onAdv);
+    if (scan) { try { scan.stop(); } catch(e){} }
+  }
+  saveDevices();
+  renderDevices();
+    return new Set([...found.values()].map(x => x.name));
+}
+
+async function addDevice() {
+  $('scanPanel').style.display = 'block';
+  $('scanList').textContent = '正在扫描附近设备…';
+  const found = await scanDevices();
+    if (!found || found.size === 0) {
+      // 静默扫描没结果或不可用，退回系统弹窗授权
+      $('scanList').textContent = '请在弹出的系统窗口中选择要配对的设备';
+    try {
+      const d = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],
+        optionalServices: [SERVICE_UUID]
+      });
+      await attachDevice(d);
+      $('scanPanel').style.display = 'none';
+      renderDevices();
+        setStatus('已添加并连接 ' + (d.name || '设备'), true);
+    } catch(e) {
+        if (e.name !== 'NotFoundError') setStatus('添加失败：' + e.message, false);
+    }
+    return;
+  }
+  renderScanList(found);
+}
+
+async function scanDevices() {
+  if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) return null;
+  const found = new Map();
+  let scan = null;
+  const onAdv = (event) => {
+    const name = event.name || (event.device && event.device.name) || '';
+    if (!name.startsWith('ESP32-BMS')) return;
+    // 已保存（已配对）的设备不再列为待配对
+    if (savedDevices.some(x => x.name === name)) return;
+    const dev = event.device;
+    const id = dev.id || dev.address || name;
+    deviceObjects[id] = dev;
+    if (name) deviceObjects[name] = dev;
+    if (!found.has(id)) {
+      found.set(id, { name, dev });
+      renderScanList(found);
+    }
+  };
+  try {
+    navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+    scan = await navigator.bluetooth.requestLEScan({
+      filters: [{ namePrefix: 'ESP32-BMS' }],
+      keepRepeatedDevices: false
+    });
+    await new Promise(r => setTimeout(r, 5000));
+  } catch(e) {
+    return found;
+  } finally {
+    navigator.bluetooth.removeEventListener('advertisementreceived', onAdv);
+    if (scan) { try { scan.stop(); } catch(e){} }
+  }
+  return found;
+}
+
+function renderScanList(found) {
+  if (!found || found.size === 0) {
+    $('scanList').textContent = found === null ? '' : '未发现可配对的设备';
+    return;
+  }
+  $('scanList').innerHTML = [...found.entries()].map(([id, item]) =>
+    `<div class="scan-item" data-id="${id}">${item.name}</div>`).join('');
+  document.querySelectorAll('.scan-item').forEach(el => {
+    el.addEventListener('click', () => pairDevice(found.get(el.dataset.id)));
+  });
+}
+
+async function pairDevice(item) {
+  if (!item) return;
+  $('scanList').textContent = '正在配对 ' + item.name + ' …';
+  try {
+    await attachDevice(item.dev);
+    $('scanPanel').style.display = 'none';
+    renderDevices();
+  } catch(e) {
+    $('scanList').textContent = '配对失败：' + e.message;
+  }
+}
+
+async function connectById(id) {
+  const lastDisc = lastDisconnect[id] || 0;
+  const wait = 2500 - (Date.now() - lastDisc);
+  if (wait > 0) {
+    setStatus('连接层复位中，请稍候…');
+    await new Promise(r => setTimeout(r, wait));
+  }
+  const saved = savedDevices.find(x => x.id === id);
+  let dev = deviceObjects[id] || (saved && deviceObjects[saved.name]);
+  if (!dev && saved && navigator.bluetooth && navigator.bluetooth.getDevices) {
+    try {
+      const authorized = await navigator.bluetooth.getDevices();
+      dev = authorized.find(x => x.name === saved.name);
+      if (dev) { deviceObjects[dev.id || id] = dev; deviceObjects[saved.name] = dev; }
+    } catch(e) {}
+  }
+  if (!dev) {
+    setStatus('未找到该设备，请先点击「添加设备」扫描', false);
+    renderDevices();
+    return;
+  }
+  try {
+    await attachDevice(dev);
+      const savedDev = savedDevices.find(x => x.id === id);
+      if (savedDev && savedDev.name && manuallyDisconnected[savedDev.name]) {
+        delete manuallyDisconnected[savedDev.name];
+        saveManualOff();
+      }
+      setStatus('已连接', true);
+    renderDevices();
+  } catch(e) {
+    setStatus('连接失败：' + e.message, false);
+    renderDevices();
+  }
+}
+
+async function autoConnect() {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  let authorized = [];
+  try { authorized = await navigator.bluetooth.getDevices(); } catch(e) { return; }
+  for (const d of authorized) {
+    const id = d.id;
+    if (!id) continue;
+    deviceObjects[id] = d;
+    if (d.name) deviceObjects[d.name] = d;
+    if (d.name && manuallyDisconnected[d.name]) continue;
+    if (connections[id]) continue;
+    try { await attachDevice(d); } catch(e) { /* 不在附近，跳过 */ }
+  }
+  renderDevices();
+}
+
+async function attachDevice(d) {
+  const id = d.id || ('dev-' + Date.now());
+  const name = d.name || '';
+  deviceObjects[id] = d;
+  if (name) deviceObjects[name] = d;
+
+    // 断开后立即重连时 GATT 可能还没复位，这里带重试
+    let server;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        server = await d.gatt.connect();
+        await server.getPrimaryService(SERVICE_UUID);
+        break;
+      } catch(e) {
+        if (attempt === 2) throw e;
+        await new Promise(r => setTimeout(r, 1200));
+      }
+    }
+
+  const service = await server.getPrimaryService(SERVICE_UUID);
+  const characteristic = await service.getCharacteristic(DATA_UUID);
+  const cmdCharacteristic = await service.getCharacteristic(CMD_UUID);
+  await characteristic.startNotifications();
+  characteristic.addEventListener('characteristicvaluechanged', (e) => {
+    const data = parseFrame(new Uint8Array(e.target.value.buffer));
+    if (data) render(id, data);
+  });
+
+  connections[id] = { device: d, characteristic, cmdCharacteristic, mac: MAC_MAP[name] || '', name };
+  const existing = savedDevices.find(x => x.name === name);
+  if (existing) {
+    existing.id = id;
+    existing.mac = existing.mac || MAC_MAP[name] || '';
+  } else {
+    savedDevices.push({ id, name, mac: MAC_MAP[name] || '' });
+  }
+  saveDevices();
+
+  d.addEventListener('gattserverdisconnected', () => {
+    delete connections[id];
+    renderDevices();
+  });
+}
+
+function showDataView(id) {
+  currentId = id;
+  $('homeView').style.display = 'none';
+  $('dataView').style.display = 'block';
+  const conn = connections[id];
+  $('devTitle').textContent = conn && conn.name ? conn.name : '设备';
+  setStatus(conn ? '已连接，实时接收数据中' : '未连接', !!conn);
+}
+
+function showHomeView() {
+  $('dataView').style.display = 'none';
+  $('homeView').style.display = 'block';
+  renderDevices();
+}
+
+function u16(b, i) { return (b[i] & 0xFF) | ((b[i+1] & 0xFF) << 8); }
+function i16(b, i) { const v = u16(b, i); return v >= 0x8000 ? v - 0x10000 : v; }
+
+function parseFrame(bytes) {
+  if (bytes.length < 6) return null;
+  if (bytes[0] !== 0xAA || bytes[1] !== 0x55) return null;
+  const len = bytes[3];
+  const payloadEnd = 4 + len;
+  if (bytes.length < payloadEnd + 1) return null;
+  let sum = 0;
+  for (let i = 2; i < payloadEnd; i++) sum = (sum + bytes[i]) & 0xFF;
+  if (sum !== bytes[payloadEnd]) return null;
+  if (bytes[2] !== 0x01) return null;
+  const p = bytes.slice(4, payloadEnd);
+  const totalVoltage = u16(p, 0) * 0.01;
+  const current = i16(p, 2) * 0.01;
+  const soc = p[4] & 0xFF;
+  const remaining = u16(p, 5) * 0.01;
+  const full = u16(p, 7) * 0.01;
+  const cellCount = p[9] & 0xFF;
+  let offset = 10;
+  const cells = [];
+  for (let i = 0; i < cellCount && offset + 1 < p.length; i++) {
+    cells.push(u16(p, offset) * 0.001); offset += 2;
+  }
+  const tempCount = offset < p.length ? p[offset] & 0xFF : 0; offset += 1;
+  const temps = [];
+  for (let i = 0; i < tempCount && offset < p.length; i++) {
+    temps.push((p[offset] & 0xFF) - 40); offset += 1;
+  }
+  const mosTemp = offset < p.length ? (p[offset] & 0xFF) - 40 : 0; offset += 1;
+  const statusByte = offset < p.length ? p[offset] & 0xFF : 0; offset += 1;
+  const soh = offset < p.length ? p[offset] & 0xFF : 100;
+  offset += 1;
+  const macBytes = [];
+  for (let i = 0; i < 6 && offset < p.length; i++) {
+    macBytes.push(p[offset] & 0xFF); offset += 1;
+  }
+  const mac = macBytes.length === 6
+    ? macBytes.map(b => b.toString(16).padStart(2, '0')).join(':')
+    : '';
+  return { totalVoltage, current, soc, soh, remaining, full, cells, temps, mosTemp, statusByte, mac };
+}
+
+function render(id, d) {
+  const conn = connections[id];
+  if (conn && d.mac) {
+    conn.mac = d.mac;
+    const saved = savedDevices.find(x => x.name === conn.name);
+    if (saved && saved.mac !== d.mac) { saved.mac = d.mac; saveDevices(); }
+  }
+  if (currentId !== id) return;
+  $('soc').textContent = d.soc + '%';
+  $('soc').style.color = d.soc > 60 ? '#2e7d32' : d.soc > 20 ? '#f9a825' : '#c62828';
+  $('soh').textContent = d.soh + '%';
+  $('voltage').innerHTML = d.totalVoltage.toFixed(2) + ' <span class="unit">V</span>';
+  $('current').innerHTML = d.current.toFixed(2) + ' <span class="unit">A</span>';
+  $('power').innerHTML = (d.totalVoltage * d.current).toFixed(1) + ' <span class="unit">W</span>';
+  const maxT = d.temps.length ? Math.max(...d.temps) : d.mosTemp;
+  $('temp').innerHTML = maxT.toFixed(1) + ' <span class="unit">℃</span>';
+  let html = '';
+  d.cells.forEach((v, i) => {
+    const pct = Math.max(5, Math.min(100, ((v - 3.0) / 0.6) * 100));
+    html += `<div class="cell-bar"><span class="idx">${i+1}</span>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+      <span class="v">${v.toFixed(3)}V</span></div>`;
+  });
+  $('cellList').innerHTML = html || '等待数据…';
+}
+
+async function sendPeriod(ms) {
+  const conn = connections[currentId];
+  if (!conn || !conn.cmdCharacteristic) { setStatus('请先连接设备', false); return; }
+  try {
+    const cmd = new Uint8Array([0x02, ms & 0xFF, (ms >> 8) & 0xFF]);
+    await conn.cmdCharacteristic.writeValue(cmd);
+    setStatus('已设置 LED 周期为 ' + ms + ' ms', true);
+    document.querySelectorAll('#periodBtns button').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.ms) === ms);
+    });
+  } catch(e) { setStatus('设置失败：' + e.message, false); }
+}
+
+$('refreshBtn').addEventListener('click', refreshOnly);
+$('addBtn').addEventListener('click', addDevice);
+$('backBtn').addEventListener('click', showHomeView);
+document.querySelectorAll('#periodBtns button').forEach(b => {
+  b.addEventListener('click', () => sendPeriod(parseInt(b.dataset.ms)));
+});
+
+if (!navigator.bluetooth) {
+  $('btStatus').textContent = '当前环境不支持蓝牙，请用 Chrome / Edge 打开';
+  $('btStatus').className = 'bt-status err';
+  $('refreshBtn').disabled = true;
+  $('addBtn').disabled = true;
+} else {
+  $('btStatus').textContent = '蓝牙可用';
+  $('btStatus').className = 'bt-status ok';
+}
+
+loadDevices();
+renderDevices();
+autoConnect();
+</script>
+</body>
+</html>
